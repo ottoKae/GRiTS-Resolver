@@ -1,0 +1,13 @@
+name: py312_grits_resolver
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - numpy
+  - pyarrow
+  - rasterio
+  - xarray
+  - zarr>=3
+  - pytest
+  - pip
