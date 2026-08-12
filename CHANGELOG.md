@@ -10,3 +10,11 @@
 - Added bilinear reflectance and nearest categorical/mask policies.
 - Added catalog atomic-generation checks and catalog/Zarr time validation.
 - Added automatic GDAL_DATA discovery for Python 3.12 conda environments.
+# 0.2.0 - 2026-08-12
+
+- Preserve all Sentinel-1 track stores for `scenes`, `smonthly`, and `static`.
+- Pair dynamic tracks with RTC-STATIC by exact reference or shared track-level
+  geometry identity without best-track arbitration.
+- Add same-coordinate, common-calendar paired-track reads for causal sensor
+  diagnostics.
+- Document the S1-GRiTS/S2-GRiTS producer and GRiTS-Resolver consumer boundary.

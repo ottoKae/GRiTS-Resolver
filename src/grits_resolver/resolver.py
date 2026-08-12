@@ -28,6 +28,8 @@ class MultiSensorResolver:
         for entry in self.s1_entries:
             if not entry.zarr_path.exists():
                 raise CatalogConsistencyError(f"Missing S1 Zarr: {entry.zarr_path}")
+            if entry.product_type != "smonthly":
+                continue
             dataset = open_dataset(entry)
             try:
                 times = np.asarray(dataset.time.values).astype("datetime64[ns]")
@@ -66,10 +68,21 @@ class MultiSensorResolver:
         return [entry for entry in source if entry.tile_id == tile_id]
 
     def s1_entry(self, tile_id: str) -> CatalogEntry:
-        matches = self.entries("sentinel-1", tile_id)
+        matches = [
+            entry for entry in self.entries("sentinel-1", tile_id)
+            if entry.product_type == "smonthly"
+        ]
         if not matches:
             raise KeyError(f"No S1 entry for {tile_id}")
         return matches[0]
+
+    def s1_tracks(self, tile_id: str) -> list[CatalogEntry]:
+        """Return every monthly S1 track; no best-track arbitration is applied."""
+        return sorted(
+            (entry for entry in self.entries("sentinel-1", tile_id)
+             if entry.product_type == "smonthly"),
+            key=lambda entry: entry.zarr_path.name,
+        )
 
     def s2_entry(self, tile_id: str, resolution_group: str = "20m") -> CatalogEntry:
         matches = [

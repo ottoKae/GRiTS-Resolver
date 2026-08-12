@@ -32,6 +32,11 @@ class CatalogEntry:
     bands: tuple[str, ...]
     row: dict[str, Any]
 
+    @property
+    def track_key(self) -> str:
+        """Stable catalog identity shared by a monthly store and its static store."""
+        return str(self.row.get("geometry_group_id") or self.row.get("item_id") or self.zarr_path.stem)
+
 
 def _bands(value: Any) -> tuple[str, ...]:
     if value is None:
