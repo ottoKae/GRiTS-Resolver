@@ -15,7 +15,50 @@ Read-only resolvers for S1-GRiTS and S2-GRiTS canonical Parquet catalogs and
 Zarr stores. Data production remains the responsibility of S1-GRiTS and
 S2-GRiTS.
 
+## Independent S2 quality companion
+
+An optional `s2_quality_root` enables read-only pairing with an independent,
+published SCL companion produced by S2-GRiTS `backfill_quality`:
+
+```python
+from grits_resolver import MultiSensorResolver
+
+resolver = MultiSensorResolver(s1_root, s2_root, s2_quality_root=quality_root)
+pair = resolver.s2_scene_quality(tile_id="17MPU", item_id=selected_item_id)
+quality = resolver.read_s2_quality_on_s1(pair, window=target_window)
+# quality: scl (uint8), quality_valid (bool), quality_available, reason
+```
+
+The three native groups have independent scene indices: spectral 10 m,
+spectral 20 m and quality 20 m. Full scene identity, UTC, publication hashes,
+accepted receipts and 20 m grid agreement are validated once at load; window
+reads reuse those indices. A changed publication requires a new resolver.
+Active or inconsistent publications are rejected; hot loading is unsupported.
+
+Missing quality raises by default. Request `allow_missing=True` when creating
+the pair to receive an explicit unavailable result instead. SCL zero stays
+`uint8(0)` and has invalid quality coverage; an observed cloud retains its
+class and valid coverage. Coverage is separate from a clear-sky decision.
+SCL uses nearest-neighbour resampling in single and bulk reads; explicit
+bilinear requests are rejected. Consolidated metadata and automatic fill-value
+masking are disabled for this raw quality path. This API performs no cloud
+masking, compositing, downloads or cleanup. The optional companion path is
+tested with the producer's pinned Zarr/xarray/numcodecs environment.
+
+The Ecuador frozen backfill is complete: 2,430 scenes across 39 tiles.
+The producer's optional pipeline also passed a one-scene real download and
+full-pixel comparison on 2026-10-14. See the public
+[SCL usage guide](https://github.com/ottoKae/S2-GRiTS/blob/main/docs/SCL_USAGE_ZH.md)
+for the environment lock, independent-store configuration and reading examples.
+Operational reports and datasets are local evidence, not package dependencies.
+
 ## Installation
+
+Offline tests use generated fixtures. Historical Ecuador data tests are skipped
+unless `GRITS_TEST_S1_ROOT` (the expected 11-tile multitrack fixture) and, for
+17MPU optical pairing, `GRITS_TEST_S2_ROOT` are explicitly provided. These tests
+check specific historical fixtures, not arbitrary datasets. Use a dedicated
+pytest `--basetemp` directory and `-p no:cacheprovider`.
 
 ```powershell
 conda env create -f environment.yml

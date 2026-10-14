@@ -11,13 +11,44 @@ from .temporal import JoinMethod, TemporalMatch, join_times
 
 
 class MultiSensorResolver:
-    def __init__(self, s1_root: str | Path, s2_root: str | Path, *, validate: bool = True):
+    def __init__(self, s1_root: str | Path, s2_root: str | Path, *, validate: bool = True,
+                 s2_quality_root: str | Path | None = None):
         self.s1_root = Path(s1_root).resolve()
         self.s2_root = Path(s2_root).resolve()
         self.s1_entries = load_catalog(self.s1_root, "sentinel-1")
         self.s2_entries = load_catalog(self.s2_root, "sentinel-2")
         if validate:
             self.validate_catalogs()
+        self.quality_companion = None
+        if s2_quality_root is not None:
+            from .s2_quality import QualityCompanion
+            self.quality_companion = QualityCompanion(self.s2_root, s2_quality_root, self.s2_entries)
+
+    def s2_scene_quality(self, tile_id, item_id, *, collection=None, allow_missing=False):
+        if self.quality_companion is None:
+            raise CatalogConsistencyError("No S2 quality companion configured")
+        return self.quality_companion.scene(tile_id, item_id, collection=collection, allow_missing=allow_missing)
+
+    def read_s2_quality_on_s1(self, pair, *, variable="scl", window):
+        if self.quality_companion is None:
+            raise CatalogConsistencyError("No S2 quality companion configured")
+        self.quality_companion.ensure_current()
+        canonical = self.quality_companion.scene(pair.tile_id, pair.item_id,
+                    collection=pair.source_collection, allow_missing=True)
+        if pair != canonical:
+            raise CatalogConsistencyError("Quality pair differs from this published generation")
+        if variable != "scl":
+            raise KeyError(variable)
+        if not pair.quality_available:
+            return {"scl": np.zeros((window.height, window.width), dtype="uint8"),
+                    "quality_valid": np.zeros((window.height, window.width), dtype=bool),
+                    "quality_available": False, "reason": "QUALITY_MISSING"}
+        result = read_aligned_window(pair.quality_20m, self.s1_entry(pair.tile_id), "scl",
+            time_index=pair.quality_20m_index, window=window, resampling=Resampling.nearest)
+        if result.dtype != np.dtype("uint8"):
+            raise CatalogConsistencyError("SCL raw dtype is not uint8")
+        return {"scl": result, "quality_valid": result != 0,
+                "quality_available": True, "reason": "AVAILABLE"}
 
     @staticmethod
     def _datetime64(value) -> np.datetime64:
@@ -122,8 +153,14 @@ class MultiSensorResolver:
         s2_time_index: int,
         window: TargetWindow,
         resolution_group: str = "20m",
-        resampling: Resampling = Resampling.bilinear,
+        resampling: Resampling | None = None,
     ) -> np.ndarray:
+        if variable == "scl":
+            if resampling is not None and resampling != Resampling.nearest:
+                raise ValueError("SCL requires nearest resampling")
+            if self.quality_companion is not None:
+                pair = self.quality_companion.scene_at(tile_id, resolution_group, s2_time_index)
+                return self.read_s2_quality_on_s1(pair, window=window)["scl"]
         return read_aligned_window(
             self.s2_entry(tile_id, resolution_group), self.s1_entry(tile_id), variable,
             time_index=s2_time_index, window=window, resampling=resampling,
@@ -139,6 +176,15 @@ class MultiSensorResolver:
         resolution_group: str = "20m",
         resampling: dict[str, Resampling] | None = None,
     ) -> dict[str, np.ndarray]:
+        if "scl" in variables and self.quality_companion is not None:
+            if (resampling or {}).get("scl", Resampling.nearest) != Resampling.nearest:
+                raise ValueError("SCL requires nearest resampling")
+            pair = self.quality_companion.scene_at(tile_id, resolution_group, s2_time_index)
+            ordinary = [name for name in variables if name != "scl"]
+            result = self.read_s2_variables_on_s1(tile_id, ordinary, s2_time_index=s2_time_index,
+                window=window, resolution_group=resolution_group, resampling=resampling) if ordinary else {}
+            result["scl"] = self.read_s2_quality_on_s1(pair, window=window)["scl"]
+            return result
         return read_aligned_variables(
             self.s2_entry(tile_id, resolution_group), self.s1_entry(tile_id), variables,
             time_index=s2_time_index, window=window, resampling=resampling,

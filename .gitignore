@@ -4,3 +4,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+/.test-tmp/
+/outputs/
+/tooling/diagnostics/
+*.log

@@ -1,16 +1,21 @@
 from pathlib import Path
+import os
 
 import numpy as np
+import pytest
 
 from grits_resolver import S1GRiTSResolver
 
 
-ROOT = Path(r"D:\QGIS\s1grits-dataset\Ecuador_Datasets\Dong_11tiles_nospeckel_smonthly_blockwise_onlyTK")
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("GRITS_TEST_S1_ROOT"),
+    reason="Set GRITS_TEST_S1_ROOT for the real Ecuador 11-tile fixture",
+)
+ROOT = Path(os.environ.get("GRITS_TEST_S1_ROOT", "."))
 
 
 def test_real_catalog_preserves_tracks_and_pairs_static() -> None:
-    if not (ROOT / "catalog.parquet").exists():
-        return
+    assert (ROOT / "catalog.parquet").exists()
     resolver = S1GRiTSResolver(ROOT)
     expected = {
         "17MNT": 2, "17MNU": 2, "17MNV": 2, "17MPT": 1,
@@ -26,8 +31,7 @@ def test_real_catalog_preserves_tracks_and_pairs_static() -> None:
 
 
 def test_real_track_read_is_not_arbitrated() -> None:
-    if not (ROOT / "catalog.parquet").exists():
-        return
+    assert (ROOT / "catalog.parquet").exists()
     resolver = S1GRiTSResolver(ROOT)
     pairs = resolver.tracks("17MNT", require_static=True)
     assert len(pairs) == 2

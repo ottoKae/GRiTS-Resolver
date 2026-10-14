@@ -28,8 +28,10 @@ class TargetWindow:
         return Window(self.col_off, self.row_off, self.width, self.height)
 
 
-def open_dataset(entry: CatalogEntry) -> xr.Dataset:
-    return xr.open_zarr(entry.zarr_path, group=entry.zarr_group, consolidated=False)
+def open_dataset(entry: CatalogEntry, *, raw: bool = False) -> xr.Dataset:
+    options = {"mask_and_scale": False, "use_zarr_fill_value_as_mask": False} if raw else {}
+    return xr.open_zarr(entry.zarr_path, group=entry.zarr_group, consolidated=False,
+                        chunks=None, **options)
 
 
 def resampling_for_variable(variable: str) -> Resampling:
@@ -64,13 +66,16 @@ def read_aligned_variables(
     resampling: dict[str, Resampling] | None = None,
 ) -> dict[str, np.ndarray]:
     """Open one Zarr group once and align several variables for one target window."""
+    if "scl" in variables and (resampling or {}).get("scl", Resampling.nearest) != Resampling.nearest:
+        raise ValueError("SCL is categorical and requires nearest resampling")
     src_window, dst_transform = _windows(source_entry, target_entry, window)
     if src_window is None:
-        return {name: np.full((window.height, window.width), np.nan, dtype="float32") for name in variables}
+        return {name: (np.zeros((window.height, window.width), dtype="uint8") if name == "scl"
+                       else np.full((window.height, window.width), np.nan, dtype="float32")) for name in variables}
     row0, col0 = int(src_window.row_off), int(src_window.col_off)
     row1, col1 = row0 + int(src_window.height), col0 + int(src_window.width)
     source_affine = Affine(*source_entry.transform)
-    dataset = open_dataset(source_entry)
+    dataset = open_dataset(source_entry, raw="scl" in variables)
     try:
         missing = [name for name in variables if name not in dataset]
         if missing:

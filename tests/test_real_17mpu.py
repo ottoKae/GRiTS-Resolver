@@ -1,18 +1,24 @@
 from pathlib import Path
+import os
 
 import numpy as np
+import pytest
 
 from grits_resolver import MultiSensorResolver
 from grits_resolver.spatial import TargetWindow
 
 
-S1 = Path(r"D:\QGIS\s1grits-dataset\Ecuador_Datasets\Dong_11tiles_nospeckel_smonthly_blockwise_onlyTK")
-S2 = Path(r"D:\QGIS\s1grits-dataset\Ecuador_Datasets\S2-GRiTS-17MPU-2024-test")
+pytestmark = pytest.mark.skipif(
+    not (os.environ.get("GRITS_TEST_S1_ROOT") and os.environ.get("GRITS_TEST_S2_ROOT")),
+    reason="Set GRITS_TEST_S1_ROOT and GRITS_TEST_S2_ROOT for the real 17MPU fixture",
+)
+S1 = Path(os.environ.get("GRITS_TEST_S1_ROOT", "."))
+S2 = Path(os.environ.get("GRITS_TEST_S2_ROOT", "."))
 
 
 def test_real_catalog_paths_time_and_lazy_spatial_window() -> None:
-    if not (S1 / "catalog.parquet").exists() or not any(S2.glob("*/catalog.parquet")):
-        return
+    assert (S1 / "catalog.parquet").exists()
+    assert any(S2.glob("*/catalog.parquet"))
     resolver = MultiSensorResolver(S1, S2)
     s1 = resolver.s1_entry("17MPU")
     s2 = resolver.s2_entry("17MPU", "20m")
