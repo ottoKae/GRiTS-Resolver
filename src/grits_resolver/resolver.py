@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from affine import Affine
 from rasterio.enums import Resampling
+from rasterio.transform import array_bounds
+from rasterio.warp import transform_bounds
+from rasterio.windows import transform as window_transform
 
 from .catalog import CatalogConsistencyError, CatalogEntry, load_catalog
 from .spatial import TargetWindow, open_dataset, read_aligned_variables, read_aligned_window
@@ -29,7 +33,51 @@ class MultiSensorResolver:
             raise CatalogConsistencyError("No S2 quality companion configured")
         return self.quality_companion.scene(tile_id, item_id, collection=collection, allow_missing=allow_missing)
 
-    def read_s2_quality_on_s1(self, pair, *, variable="scl", window):
+    def s2_quality_candidates_on_target(self, target_entry, *, window, start, end,
+                                        allow_missing=True):
+        """Return stable scene pairs intersecting a target window, across tiles.
+
+        Dates use [start, end). Raster bounds deliberately give a conservative
+        candidate set, not a guarantee of scene footprint, clear or valid data.
+        This does not mosaic, deduplicate acquisitions or change source weights.
+        """
+        if self.quality_companion is None:
+            raise CatalogConsistencyError("No S2 quality companion configured")
+        if target_entry.sensor != "sentinel-1":
+            raise ValueError("Explicit target must be a Sentinel-1 grid entry")
+        begin, stop = self._datetime64(start), self._datetime64(end)
+        if np.isnat(begin) or np.isnat(stop) or begin >= stop:
+            raise ValueError("Expected finite start < end (exclusive)")
+        self.quality_companion.ensure_current()
+        tf = window_transform(window.rasterio_window(), Affine(*target_entry.transform))
+        bounds = array_bounds(window.height, window.width, tf)
+        projected = {}
+        selected = {}
+        for source in self.s2_entries:
+            if source.zarr_group != "10m":
+                continue
+            when = self._datetime64(source.row["datetime"])
+            if not begin <= when < stop:
+                continue
+            if source.crs not in projected:
+                projected[source.crs] = transform_bounds(target_entry.crs, source.crs, *bounds)
+            left, bottom, right, top = projected[source.crs]
+            sl, sb, sr, st = array_bounds(source.height, source.width, Affine(*source.transform))
+            if min(right, sr) <= max(left, sl) or min(top, st) <= max(bottom, sb):
+                continue
+            identity = (str(source.row["source_collection"]), source.tile_id, str(source.row["item_id"]))
+            selected[identity] = when
+        return [self.quality_companion.scene(tile, item, collection=collection,
+                    allow_missing=allow_missing)
+                for (collection, tile, item), _ in sorted(selected.items(), key=lambda v: (v[1], v[0]))]
+
+    def read_s2_quality_on_s1(self, pair, *, variable="scl", window,
+                             target_entry: CatalogEntry | None = None):
+        """Read categorical SCL onto an explicit target, or legacy same-tile grid.
+
+        Nonzero quality_valid means source coverage, not clear-sky acceptance.
+        Nearest output does not implement full-footprint cloud screening.
+        """
         if self.quality_companion is None:
             raise CatalogConsistencyError("No S2 quality companion configured")
         self.quality_companion.ensure_current()
@@ -39,11 +87,14 @@ class MultiSensorResolver:
             raise CatalogConsistencyError("Quality pair differs from this published generation")
         if variable != "scl":
             raise KeyError(variable)
+        if target_entry is not None and target_entry.sensor != "sentinel-1":
+            raise ValueError("Explicit target must be a Sentinel-1 grid entry")
         if not pair.quality_available:
             return {"scl": np.zeros((window.height, window.width), dtype="uint8"),
                     "quality_valid": np.zeros((window.height, window.width), dtype=bool),
                     "quality_available": False, "reason": "QUALITY_MISSING"}
-        result = read_aligned_window(pair.quality_20m, self.s1_entry(pair.tile_id), "scl",
+        target = target_entry if target_entry is not None else self.s1_entry(pair.tile_id)
+        result = read_aligned_window(pair.quality_20m, target, "scl",
             time_index=pair.quality_20m_index, window=window, resampling=Resampling.nearest)
         if result.dtype != np.dtype("uint8"):
             raise CatalogConsistencyError("SCL raw dtype is not uint8")
