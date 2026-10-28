@@ -18,7 +18,7 @@ def setup(entries):
     def scene(tile,item,**kwargs):
         calls.append((tile,item,kwargs));return pair
     r=MultiSensorResolver.__new__(MultiSensorResolver)
-    r.quality_companion=SimpleNamespace(ensure_current=lambda:None,scene=scene)
+    r.quality_companion=SimpleNamespace(ensure_current=lambda pair=None:None,scene=scene)
     r.s1_entries=[target];r.s2_entries=[source]
     return r,pair,target,expected,calls
 

@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 import pyarrow.parquet as pq
 
-
 Sensor = Literal["sentinel-1", "sentinel-2"]
 
 
@@ -47,20 +46,48 @@ def _bands(value: Any) -> tuple[str, ...]:
     return tuple(str(v) for v in value)
 
 
-def resolve_asset_path(dataset_root: Path, tile_id: str, stored_path: str) -> Path:
+def map_root_path(stored_path: str | Path, root_map=None) -> Path:
+    """Map an absolute legacy root explicitly; never guess from basename."""
+    path = Path(stored_path).resolve()
+    matches = []
+    normalized = {}
+    for previous, current in (root_map or {}).items():
+        previous, current = Path(previous), Path(current)
+        if not previous.is_absolute() or not current.is_absolute():
+            raise ValueError("root_map requires absolute old and new roots")
+        previous, current = previous.resolve(), current.resolve()
+        if previous in normalized and normalized[previous] != current:
+            raise ValueError("root_map contains conflicting roots")
+        normalized[previous] = current
+        if path.is_relative_to(previous):
+            mapped = (current / path.relative_to(previous)).resolve()
+            if not mapped.is_relative_to(current):
+                raise CatalogConsistencyError("Mapped path escapes its destination root")
+            matches.append((len(previous.parts), mapped))
+    return max(matches, key=lambda match: match[0])[1] if matches else path
+
+
+def resolve_asset_path(dataset_root: Path, tile_id: str, stored_path: str, *, root_map=None) -> Path:
     """Resolve canonical global paths and legacy S1 tile-relative paths."""
     path = Path(stored_path)
     if path.is_absolute():
-        return path.resolve()
+        mapped = map_root_path(path, root_map)
+        if root_map is not None and not mapped.is_relative_to(dataset_root.resolve()):
+            raise CatalogConsistencyError("Absolute Catalog path is not mapped into this dataset root")
+        return mapped
     global_candidate = dataset_root / path
     tile_candidate = dataset_root / tile_id / path
     if global_candidate.exists():
-        return global_candidate.resolve()
-    if tile_candidate.exists():
-        return tile_candidate.resolve()
-    # Canonical v7 requires dataset-root relative paths; retain that deterministic
-    # interpretation for missing assets so diagnostics name the correct contract.
-    return global_candidate.resolve()
+        candidate = global_candidate
+    elif tile_candidate.exists():
+        candidate = tile_candidate
+    else:
+        # Missing canonical assets retain their deterministic root-relative location.
+        candidate = global_candidate
+    resolved = candidate.resolve()
+    if root_map is not None and not resolved.is_relative_to(dataset_root.resolve()):
+        raise CatalogConsistencyError("Relative Catalog path escapes this dataset root")
+    return resolved
 
 
 def _read_atomic_catalog(path: Path, retries: int = 3) -> list[dict[str, Any]]:
@@ -81,7 +108,7 @@ def _read_atomic_catalog(path: Path, retries: int = 3) -> list[dict[str, Any]]:
     raise CatalogConsistencyError(f"Catalog changed or was unreadable during read: {path}") from last_error
 
 
-def load_catalog(dataset_root: str | Path, sensor: Sensor) -> list[CatalogEntry]:
+def load_catalog(dataset_root: str | Path, sensor: Sensor, *, root_map=None) -> list[CatalogEntry]:
     root = Path(dataset_root).resolve()
     global_catalog = root / "catalog.parquet"
     if global_catalog.exists():
@@ -108,7 +135,7 @@ def load_catalog(dataset_root: str | Path, sensor: Sensor) -> list[CatalogEntry]
                 sensor=sensor,
                 tile_id=tile_id,
                 product_type=str(row.get("product_type") or ""),
-                zarr_path=resolve_asset_path(root, tile_id, str(zarr_value)),
+                zarr_path=resolve_asset_path(root, tile_id, str(zarr_value), root_map=root_map),
                 zarr_group=(str(row["zarr_group"]) if row.get("zarr_group") else None),
                 grid_id=str(row["grid_id"]),
                 crs=str(row["crs"]),

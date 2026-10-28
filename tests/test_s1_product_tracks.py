@@ -4,9 +4,10 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 import xarray as xr
 
-from grits_resolver import S1GRiTSResolver
+from grits_resolver import CatalogConsistencyError, S1GRiTSResolver
 
 
 def _write_dynamic(path: Path) -> None:
@@ -77,3 +78,15 @@ def test_scenes_smonthly_and_static_remain_separate_by_track(tmp_path: Path) -> 
     assert [pair.static_match for pair in monthly_pairs] == ["reference", "reference"]
     assert [pair.static_match for pair in scenes_pairs] == ["geometry_group", "geometry_group"]
     assert [pair.track_key for pair in monthly_pairs] == [pair.track_key for pair in scenes_pairs]
+
+    strict_monthly = resolver.tracks(
+        tile, product_type="smonthly", require_static=True,
+        strict_static_reference=True,
+    )
+    assert [pair.static_match for pair in strict_monthly] == ["reference", "reference"]
+
+    with pytest.raises(CatalogConsistencyError, match="exact reference_zarr_path"):
+        resolver.tracks(
+            tile, product_type="scenes", require_static=True,
+            strict_static_reference=True,
+        )

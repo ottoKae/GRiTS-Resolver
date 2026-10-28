@@ -1,5 +1,19 @@
 # GRiTS-Resolver
 
+## 0.3.1rc1 candidate: processing evidence and safe reloads
+
+Read provenance release v1/v2 with `ProvenanceView` or the existing S1/MultiSensor
+resolvers. Explanations bind historical statements and numeric receipts to the
+selected output generation. Pending writes, changed releases and invalid scopes
+are rejected; reopen after production completes. This does not alter pixel units.
+See the [reading and relocation guide](docs/PROVENANCE_READING_ZH.md).
+
+The candidate also validates independent SCL pairing, preserves scene identity
+and raw optical DN, and keeps valid zero cloud probability inside SCL coverage.
+Use Python 3.12 and the matching S1-GRiTS 3.0.1rc1 candidate. Existing historical
+archives do not need republication merely to upgrade the reader. Concurrent
+writing/reading and full-year incremental production are not accepted workloads.
+
 ```text
 S1-GRiTS ── produces ──┐
                        ├── catalog + Zarr ──> GRiTS-Resolver ──> applications / models

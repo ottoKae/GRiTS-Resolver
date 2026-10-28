@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1rc1 — 2026-10-28 (candidate)
+
+- Read provenance release v1/v2 and explain exact output/generation evidence.
+- Guard S1/S2 reads against pending writes, changed releases and stale Catalogs;
+  validate independent SCL pairing and explicit root mappings after relocation.
+- Preserve scene identity and raw optical DN; retain valid zero cloud probability
+  inside SCL coverage and consistent point/window reprojection.
+- Historical evidence stays historical. Readers never infer missing production
+  steps or apply numeric corrections merely because metadata describes them.
+- Candidate delivery only; concurrent production/reading and full-year
+  incremental producer performance are not accepted workloads.
+
 ## 0.1.0 — 2026-08-11
 
 - Added strict S1-GRiTS and S2-GRiTS canonical catalog adapters.
